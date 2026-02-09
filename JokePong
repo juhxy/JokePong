@@ -170,9 +170,7 @@ select{
 
 <script>
 
-const c = document.getElementById("game");
-c.width = 720;
-c.height = 420;
+
 
 
   // Odotetaan käyttäjän ensimmäistä klikkausta ennen pelin käynnistystä
@@ -393,6 +391,11 @@ function toggleMusic(){
 
 
 function startGame(){
+
+const c = document.getElementById("game");
+c.width = 720;
+c.height = 420;
+
   difficulty=document.getElementById("difficulty").value;
   menu.style.display="none";
   c.style.display="block";
@@ -1137,6 +1140,7 @@ function loop(){
 
 </body>
 </html>
+
 
 
 
