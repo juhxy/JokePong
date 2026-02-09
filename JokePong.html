@@ -412,6 +412,9 @@ function startGame(){
  bgm.play().catch(()=>{});
 
   resetBall();
+// LISÄÄ TÄMÄ TÄHÄN
+requestAnimationFrame(loop);
+  
 }
 window.startGame=startGame;
 
@@ -1115,11 +1118,13 @@ function loop(){
   draw();
   requestAnimationFrame(loop);
 }
-loop();
+// loop();  // ⬅ POISTA tai kommentoi tämä
+
 
 
 </script>
 
 </body>
 </html>
+
 
