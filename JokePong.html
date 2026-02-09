@@ -166,6 +166,13 @@ select{
 
 <script>
 
+  // Odotetaan käyttäjän ensimmäistä klikkausta ennen pelin käynnistystä
+document.addEventListener("click", startGameOnce, { once: true });
+
+function startGameOnce() {
+    startGame();
+}
+
 
   if ("serviceWorker" in navigator) {
     navigator.serviceWorker.register("sw.js");
@@ -1115,3 +1122,4 @@ loop();
 
 </body>
 </html>
+
