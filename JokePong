@@ -21,12 +21,16 @@
    ======================= */
 #game {
     display: none;
+    position: fixed;     /* ← tämä on ratkaiseva */
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);  /* keskitys ilman layout-shiftiä */
     width: 720px;
     height: 420px;
-    margin: 20px auto 10px;
     border: 3px solid #0fc;
     background: #000;
 }
+
 
 
 /* =======================
@@ -512,6 +516,7 @@ function loop(){
 
 </body>
 </html>
+
 
 
 
