@@ -1,0 +1,1117 @@
+<!DOCTYPE html>
+<html lang="fi">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" type="image/png" href="bg.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#000000">
+
+<!-- iOS PWA tuki -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<link rel="apple-touch-icon" href="bg.png">
+
+<title>JokePong</title>
+<style>
+body{
+  margin:0;
+  background:#000;
+  color:#0fc;
+  font-family:monospace;
+  text-align:center;
+}
+h1{margin-top:10px}
+canvas{
+  display:block;
+  margin:20px auto 10px;
+  border:3px solid #0fc;
+  box-shadow:0 0 25px #0fc;
+  background:url("bg.png") center/cover no-repeat;
+}
+button{
+  background:#000;
+  color:#0fc;
+  border:2px solid #0fc;
+  padding:12px 20px;
+  font-size:16px;
+  cursor:pointer;
+  box-shadow:0 0 10px #0fc;
+}
+button:hover{
+  background:#0fc;
+  color:#000;
+}
+select{
+  background:#000;
+  color:#0fc;
+  border:2px solid #0fc;
+  padding:6px 10px;
+  font-size:14px;
+  margin-top:10px;
+}
+
+/* HUD yläreunassa */
+#hudBar{
+  max-width:720px;
+  margin:0 auto 6px;
+  border:2px solid #0fc;
+  padding:4px 8px;
+  box-shadow:0 0 15px #0fc;
+  display:none;
+  justify-content:space-between;
+  align-items:flex-start;
+  font-size:12px;
+}
+#hudBar .col{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-start;
+}
+#hudBar .col.right{
+  align-items:flex-end;
+}
+.buff-container{
+  display:flex;
+  flex-wrap:wrap;
+  gap:4px;
+}
+.buff-pill{
+  border-radius:999px;
+  padding:1px 6px;
+  font-size:10px;
+  border:1px solid #0fc;
+}
+
+/* Powerup‑taulukko alareunassa */
+#powerupTable{
+  max-width:900px;
+  margin:10px auto 0;
+  border:2px solid #0fc;
+  padding:6px 8px;
+  box-shadow:0 0 15px #0fc;
+  font-size:12px;
+}
+#powerupTable h3{
+  margin:0 0 4px;
+  color:#0f9;
+  text-transform:uppercase;
+}
+#powerupTable table{
+  width:100%;
+  border-collapse:collapse;
+}
+#powerupTable th,
+#powerupTable td{
+  border-bottom:1px solid #033;
+  text-align:left;
+  padding:2px 4px;
+}
+#powerupTable th{
+  font-weight:bold;
+  color:#0f9;
+}
+</style>
+</head>
+<body>
+
+<h1>🏓 JokePong</h1>
+
+<div id="menu">
+  <p>Selviydy ja voita 80 pisteeseen asti</p>
+  <button onclick="startGame()">START GAME</button><br>
+  <button id="muteBtn" onclick="toggleMusic()">Mute Music</button>
+  <select id="difficulty">
+    <option value="easy">Easy</option>
+    <option value="medium" selected>Medium</option>
+    <option value="hard">Hard</option>
+    <option value="joke69">Joke69 (Hardcore)</option>
+  </select>
+  <p id="best"></p>
+</div>
+
+<div id="hudBar">
+  <div class="col">
+    <div id="hudPlayerScore">Player: 0</div>
+    <div id="playerBuffs" class="buff-container"></div>
+  </div>
+  <div class="col">
+    <div id="hudTime">0 s</div>
+  </div>
+  <div class="col right">
+    <div id="hudEnemyScore">Enemy: 0</div>
+    <div id="enemyBuffs" class="buff-container"></div>
+  </div>
+</div>
+
+<canvas id="game" width="720" height="420" style="display:none"></canvas>
+
+<div id="powerupTable">
+  <h3>PowerUps</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Nimi</th>
+        <th>Rarity</th>
+        <th>Kuvaus</th>
+      </tr>
+    </thead>
+    <tbody id="powerupTableBody"></tbody>
+  </table>
+</div>
+
+<audio id="bgm" loop><source src="PATH_TO_BACKGROUND_MUSIC.wav"></audio>
+<audio id="hitSound"><source src="PATH_TO_HIT.wav"></audio>
+<audio id="powerSound"><source src="PATH_TO_POWERUP.wav"></audio>
+<audio id="gameOverSound"><source src="PATH_TO_GAMEOVER.wav"></audio>
+
+<script>
+
+
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.register("sw.js");
+  }
+
+
+
+// ===== ELEMENTIT =====
+const c=document.getElementById("game"),
+      x=c.getContext("2d"),
+      menu=document.getElementById("menu"),
+      hudBar=document.getElementById("hudBar"),
+      hudPlayerScore=document.getElementById("hudPlayerScore"),
+      hudEnemyScore=document.getElementById("hudEnemyScore"),
+      hudTime=document.getElementById("hudTime"),
+      playerBuffsEl=document.getElementById("playerBuffs"),
+      enemyBuffsEl=document.getElementById("enemyBuffs"),
+      powerupTableBody=document.getElementById("powerupTableBody");
+
+let running=false,
+    startTime=0,
+    timeAlive=0,
+    bestTime=Number(localStorage.getItem("bestTime")||0);
+
+document.getElementById("best").textContent="Paras aika: "+bestTime+" s";
+let hudNeonColor = "#00ffcc";
+
+const SCORE_LIMIT=80;
+
+// ===== PELIOLIOT =====
+const player={x:30,y:160,w:12,h:90,speed:7,inverted:false,lastY:160,ghost:false};
+const enemy={x:678,y:160,w:12,h:90,speed:4,maxSpeed:6,inverted:false,ghost:false};
+
+let ball={x:360,y:210,r:6,dx:6,dy:3,ghost:false};
+let extraBalls=[],enemyExtraBalls=[];
+let powerUp=null,lastPowerSpawn=0;
+let playerScore=0,enemyScore=0;
+let shakeTime=0,shakeIntensity=0;
+let difficulty="medium";
+
+let playerSpeedBonus=0;
+let ballScale=1;
+
+const keys={},particles=[];
+const activeBuffs={player:[],enemy:[]};
+
+let blackHole=null;
+let mirrorUntil=0;
+let timeWarp={active:false,owner:null,until:0};
+
+// ===== POWERUP META =====
+const powerupMeta=[
+  {id:"size",name:"Size+",rarity:"common",desc:"Kasvattaa mailan korkeutta hetkeksi."},
+  {id:"speed",name:"Speed+",rarity:"common",desc:"Lisää liikkumisnopeutta."},
+  {id:"slow",name:"Slow Ball",rarity:"common",desc:"Hidastaa pallon nopeutta."},
+  {id:"invert",name:"Invert Controls",rarity:"rare",desc:"Kääntää vastustajan ohjaussuunnan."},
+  {id:"ghost",name:"Ghost",rarity:"rare",desc:"Maila tai pallo läpäisee törmäyksen."},
+  {id:"multi",name:"Multi Ball",rarity:"rare",desc:"Luo lisäpalloja."},
+  {id:"chaos",name:"Chaos",rarity:"epic",desc:"Satunnaistaa nopeuksia ja mailakokoja."},
+  {id:"shatter",name:"Shatter",rarity:"epic",desc:"Pallo hajoaa sirpaleiksi osumasta."},
+  {id:"blackhole",name:"Black Hole",rarity:"legendary",desc:"Vetää palloa puoleensa."},
+  {id:"mirror",name:"Mirror Field",rarity:"legendary",desc:"Peiliseinät hetken ajan."},
+  {id:"timewarp",name:"Time Warp",rarity:"legendary",desc:"Hidastaa aikaa muille."},
+  {id:"octo",name:"Octo-Paddle",rarity:"legendary",desc:"8 lisämailaa ympärillä."}
+];
+
+// ===== POWERUP TAULUKKO =====
+function fillPowerupTable(){
+  powerupTableBody.innerHTML="";
+  powerupMeta.forEach(p=>{
+    const tr=document.createElement("tr");
+    const color=p.rarity==="common"?"#3ddc84":
+                p.rarity==="rare"?"#3b82f6":
+                p.rarity==="epic"?"#a855f7":"#f59e0b";
+    tr.innerHTML=
+      `<td style="color:${color}">${p.name}</td>`+
+      `<td>${p.rarity}</td>`+
+      `<td>${p.desc}</td>`;
+    powerupTableBody.appendChild(tr);
+  });
+}
+fillPowerupTable();
+
+// ===== INPUT =====
+document.addEventListener("keydown",e=>keys[e.key]=true);
+document.addEventListener("keyup",e=>keys[e.key]=false);
+
+// HIIRIOHJAUS
+document.addEventListener("mousemove",e=>{
+  const r=c.getBoundingClientRect();
+  const my=e.clientY-r.top;
+
+  player.lastY=player.y;
+
+  if(!player.inverted){
+    player.y=Math.max(0,Math.min(c.height-player.h,my-player.h/2));
+  }else{
+    const invertedY=c.height-my;
+    player.y=Math.max(0,Math.min(c.height-player.h,invertedY-player.h/2));
+  }
+});
+
+// ===== APUFUNKTIOT =====
+function snd(id){
+  const s=document.getElementById(id);
+  if(!s)return;
+  s.currentTime=0;
+  s.play().catch(()=>{});
+}
+function neon(){
+  const a=["#00ffcc","#ff00ff","#ffcc00","#00aaff","#ff0066","#ccff00"];
+  return a[Math.floor(Math.random()*a.length)];
+}
+function part(x0,y0,s=1){
+  const a=Math.random()*Math.PI*2,v=(Math.random()*1.5+0.5)*s;
+  particles.push({x:x0,y:y0,vx:Math.cos(a)*v,vy:Math.sin(a)*v,l:40+Math.random()*40,m:40+Math.random()*40,c:neon(),r:1+Math.random()*2});
+}
+function burst(x0,y0,n,s=1.5){for(let i=0;i<n;i++)part(x0,y0,s);}
+function updParts(){
+  for(let i=particles.length-1;i>=0;i--){
+    const p=particles[i];
+    p.x+=p.vx;p.y+=p.vy;p.l--;
+    if(p.l<=0)particles.splice(i,1);
+  }
+}
+function drawParts(){
+  for(const p of particles){
+    const a=p.l/p.m;
+    x.save();
+    x.globalAlpha=a;
+    x.fillStyle=p.c;
+    x.shadowColor=p.c;
+    x.shadowBlur=15;
+    x.beginPath();
+    x.arc(p.x,p.y,p.r,0,Math.PI*2);
+    x.fill();
+    x.restore();
+  }
+}
+function shake(){
+  if(shakeTime>0){
+    shakeTime--;
+    const dx=(Math.random()-.5)*shakeIntensity,
+          dy=(Math.random()-.5)*shakeIntensity;
+    x.setTransform(1,0,0,1,dx,dy);
+  } else x.setTransform(1,0,0,1,0,0);
+}
+function hitShake(f){shakeTime=10;shakeIntensity=f;}
+
+function getAIModifiers(){
+  switch(difficulty){
+    case"easy":return{reaction:.03,error:25,maxSpeed:4};
+    case"medium":return{reaction:.05,error:15,maxSpeed:6};
+    case"hard":return{reaction:.08,error:5,maxSpeed:8};
+    case"joke69":return{reaction:.12,error:0,maxSpeed:12};
+  }
+}
+
+// ===== BUFFIT =====
+function addBuff(side,id,durMs){
+  const meta=powerupMeta.find(p=>p.id===id);
+  if(!meta)return;
+  const now=performance.now();
+  activeBuffs[side].push({id,power:meta,until:now+durMs});
+}
+function cleanupBuffs(){
+  const now=performance.now();
+  activeBuffs.player=activeBuffs.player.filter(b=>b.until>now);
+  activeBuffs.enemy=activeBuffs.enemy.filter(b=>b.until>now);
+}
+function renderBuffs(){
+  function fill(el,list){
+    el.innerHTML="";
+    const now=performance.now();
+    list.filter(b=>b.until>now).forEach(b=>{
+      const span=document.createElement("span");
+      const r=b.power.rarity;
+      const color=r==="common"?"#3ddc84":r==="rare"?"#3b82f6":r==="epic"?"#a855f7":"#f59e0b";
+      span.textContent=b.power.name;
+      span.className="buff-pill";
+      span.style.borderColor=color;
+      span.style.color=color;
+      el.appendChild(span);
+    });
+  }
+  fill(playerBuffsEl,activeBuffs.player);
+  fill(enemyBuffsEl,activeBuffs.enemy);
+}
+
+// ===== PELIN KÄYNNISTYS =====
+
+
+// ===== MUTE MUSIC FUNKTIO =====
+let musicMuted = false;
+
+function toggleMusic(){
+  const bgm = document.getElementById("bgm");
+  musicMuted = !musicMuted;
+
+  if(musicMuted){
+    bgm.muted = true;
+    document.getElementById("muteBtn").textContent = "Unmute Music";
+  } else {
+    bgm.muted = false;
+    document.getElementById("muteBtn").textContent = "Mute Music";
+  }
+}
+
+
+
+function startGame(){
+  difficulty=document.getElementById("difficulty").value;
+  menu.style.display="none";
+  c.style.display="block";
+  hudBar.style.display="flex";
+
+  running=true;
+  startTime=performance.now();
+  lastPowerSpawn=startTime;
+
+  playerScore=0;enemyScore=0;
+  particles.length=0;
+  extraBalls=[];enemyExtraBalls=[];
+  shakeTime=0;shakeIntensity=0;
+  player.inverted=false;enemy.inverted=false;
+  player.ghost=false;enemy.ghost=false;
+  ball.ghost=false;
+  blackHole=null;mirrorUntil=0;
+  timeWarp={active:false,owner:null,until:0};
+  activeBuffs.player=[];activeBuffs.enemy=[];
+  playerSpeedBonus=0;
+  ballScale=1;
+
+ const bgm=document.getElementById("bgm");
+ bgm.currentTime = 0;
+ bgm.muted = musicMuted; // säilyttää mute-tilan
+ bgm.play().catch(()=>{});
+
+  resetBall();
+}
+window.startGame=startGame;
+
+function resetBall(b=ball){
+  const a = Math.random()*0.6 - 0.3;
+  let s = 3 + timeAlive * 0.05;
+
+  // Joke69 Hardcore: nopeampi pallo
+  if (difficulty === "joke69") {
+    s *= 1.8; // voit säätää tätä
+  }
+
+  b.dx = (Math.random() > .5 ? 1 : -1) * s;
+  b.dy = s * a;
+  b.x = c.width / 2;
+  b.y = c.height / 2;
+}
+
+
+// ===== POWERUP SPAWN =====
+function spawnPowerUp(){
+  const r=Math.random();
+  let pool;
+  if(r<0.55)      pool=["size","speed","slow"];
+  else if(r<0.80) pool=["invert","ghost","multi"];
+  else if(r<0.95) pool=["chaos","shatter"];
+  else            pool=["blackhole","mirror","timewarp","octo"];
+
+  const type=pool[Math.floor(Math.random()*pool.length)];
+  powerUp={
+    x:Math.random()*(c.width-160)+80,
+    y:Math.random()*(c.height-160)+80,
+    r:10,
+    type
+  };
+}
+
+// ===== POWERUP-EFEKTIT =====
+function applyPowerUp(t){
+  snd("powerSound");
+  burst(ball.x,ball.y,60,2);
+  hitShake(8);
+
+  if(t==="size"){
+    player.h+=30;
+    addBuff("player","size",6000);
+    setTimeout(()=>player.h=Math.max(90,player.h-30),6000);
+  }
+
+  if(t==="speed"){
+    playerSpeedBonus+=2;
+    addBuff("player","speed",6000);
+    setTimeout(()=>playerSpeedBonus-=2,6000);
+  }
+
+  if(t==="slow"){
+    addBuff("player","slow",4000);
+  }
+
+  if(t==="invert"){
+    enemy.inverted=true;
+    addBuff("player","invert",4000);
+    setTimeout(()=>enemy.inverted=false,4000);
+  }
+
+  if(t==="ghost"){
+    player.ghost=true;
+    addBuff("player","ghost",3000);
+    setTimeout(()=>player.ghost=false,3000);
+  }
+
+  if(t==="multi"){
+    extraBalls.push({x:ball.x,y:ball.y,r:ball.r,dx:-ball.dx,dy:ball.dy*1.1});
+    addBuff("player","multi",4000);
+  }
+
+  if(t==="chaos"){
+    addBuff("player","chaos",4000);
+    const ci=setInterval(()=>{
+      ball.dx+=(Math.random()-.5)*4;
+      ball.dy+=(Math.random()-.5)*4;
+      enemy.h=60+Math.random()*80;
+      player.h=60+Math.random()*80;
+      hitShake(14);
+    },90);
+    setTimeout(()=>{clearInterval(ci);enemy.h=90;player.h=90;},4000);
+  }
+
+  if(t==="shatter"){
+    addBuff("player","shatter",3000);
+    for(let i=0;i<4;i++){
+      const a=Math.random()*Math.PI*2;
+      extraBalls.push({x:ball.x,y:ball.y,r:4,dx:Math.cos(a)*5,dy:Math.sin(a)*5});
+    }
+  }
+
+  if(t==="blackhole"){
+    const dur=6000;
+    blackHole={
+      x:Math.random()*(c.width-200)+100,
+      y:Math.random()*(c.height-200)+100,
+      r:40,
+      strength:0.0012,
+      until:performance.now()+dur
+    };
+    addBuff("player","blackhole",dur);
+  }
+
+  if(t==="mirror"){
+    const dur=6000;
+    mirrorUntil=performance.now()+dur;
+    addBuff("player","mirror",dur);
+  }
+
+  if(t==="timewarp"){
+    const dur=6000;
+    timeWarp={active:true,owner:"player",until:performance.now()+dur};
+    addBuff("player","timewarp",dur);
+  }
+
+  if(t==="octo"){
+    const dur=6000;
+    addBuff("player","octo",dur);
+  }
+}
+
+function applyEnemyPowerUp(t){
+  snd("powerSound");
+  burst(powerUp.x,powerUp.y,40,1.5);
+  hitShake(6);
+
+  if(t==="size"){
+    enemy.h+=30;
+    addBuff("enemy","size",6000);
+    setTimeout(()=>enemy.h=Math.max(90,enemy.h-30),6000);
+  }
+
+  if(t==="speed"){
+    const base = enemy.speed;
+    enemy.speed += 2;
+    addBuff("enemy","speed",6000);
+    setTimeout(()=>enemy.speed = base,6000);
+  }
+
+  if(t==="slow"){
+    addBuff("enemy","slow",4000);
+  }
+
+  if(t==="invert"){
+    player.inverted=true;
+    addBuff("enemy","invert",4000);
+    setTimeout(()=>player.inverted=false,4000);
+  }
+
+  if(t==="ghost"){
+    enemy.ghost=true;
+    addBuff("enemy","ghost",3000);
+    setTimeout(()=>enemy.ghost=false,3000);
+  }
+
+  if(t==="multi"){
+    enemyExtraBalls.push({x:ball.x,y:ball.y,r:ball.r,dx:-ball.dx,dy:ball.dy*1.1});
+    addBuff("enemy","multi",4000);
+  }
+
+  if(t==="chaos"){
+    addBuff("enemy","chaos",4000);
+    const ci=setInterval(()=>{
+      ball.dx+=(Math.random()-.5)*4;
+      ball.dy+=(Math.random()-.5)*4;
+      enemy.h=60+Math.random()*80;
+      player.h=60+Math.random()*80;
+      hitShake(14);
+    },90);
+    setTimeout(()=>{clearInterval(ci);enemy.h=90;player.h=90;},4000);
+  }
+
+  if(t==="shatter"){
+    addBuff("enemy","shatter",3000);
+    for(let i=0;i<4;i++){
+      const a=Math.random()*Math.PI*2;
+      enemyExtraBalls.push({x:ball.x,y:ball.y,r:4,dx:Math.cos(a)*5,dy:Math.sin(a)*5});
+    }
+  }
+
+  if(t==="blackhole"){
+    const dur=6000;
+    blackHole={
+      x:Math.random()*(c.width-200)+100,
+      y:Math.random()*(c.height-200)+100,
+      r:40,
+      strength:0.0012,
+      until:performance.now()+dur
+    };
+    addBuff("enemy","blackhole",dur);
+  }
+
+  if(t==="mirror"){
+    const dur=6000;
+    mirrorUntil=performance.now()+dur;
+    addBuff("enemy","mirror",dur);
+  }
+
+  if(t==="timewarp"){
+    const dur=6000;
+    timeWarp={active:true,owner:"enemy",until:performance.now()+dur};
+    addBuff("enemy","timewarp",dur);
+  }
+
+  if(t==="octo"){
+    const dur=6000;
+    addBuff("enemy","octo",dur);
+  }
+}
+
+// ===== AI =====
+function col(p,b){
+  return b.x+b.r>p.x && b.x-b.r<p.x+p.w && b.y>p.y && b.y<p.y+p.h;
+}
+
+function ai(){
+  const m=getAIModifiers();
+  const prediction=ball.y+ball.dy*10;
+  const center=enemy.y+enemy.h/2;
+  const target=prediction+(Math.random()-.5)*m.error;
+  let diff=target-center;
+
+  if(enemy.inverted) diff*=-1;
+
+  let aiScale=1;
+  if(timeWarp.active && timeWarp.owner==="player") aiScale=0.5;
+
+  const step=Math.max(-m.maxSpeed,Math.min(m.maxSpeed,diff*m.reaction*aiScale));
+  enemy.y+=step;
+  enemy.y=Math.max(0,Math.min(c.height-enemy.h,enemy.y));
+}
+
+function remBall(b){
+  let i=extraBalls.indexOf(b);
+  if(i!==-1){extraBalls.splice(i,1);return;}
+  i=enemyExtraBalls.indexOf(b);
+  if(i!==-1)enemyExtraBalls.splice(i,1);
+}
+
+// ===== FYSIIKKA =====
+function phys(b,isEnemyBall=false){
+
+
+// ===== BLACK HOLE SUPER‑GRAVITY =====
+if (blackHole && performance.now() < blackHole.until) {
+
+  const dx = blackHole.x - b.x;
+  const dy = blackHole.y - b.y;
+  const dist = Math.hypot(dx, dy);
+
+  // 1) Voimakas vetovoima
+  const pull = Math.max(0.002, 0.03 * (1 - dist / (blackHole.r * 4)));
+  b.dx += (dx / dist) * pull * 40;
+  b.dy += (dy / dist) * pull * 40;
+
+  // 2) Jos pallo on hyvin lähellä → imeytyy
+  if (dist < blackHole.r * 0.6) {
+
+    // Tee pieni "sisään imeytyminen" efekti
+    b.x += dx * 0.4;
+    b.y += dy * 0.4;
+
+    // 3) Hetken kuluttua pallo sinkoutuu ulos
+    if (!b._bhCooldown) {
+      b._bhCooldown = true;
+
+      setTimeout(() => {
+        const angle = Math.random() * Math.PI * 2;
+        const speed = 10 + Math.random() * 8;
+
+        b.dx = Math.cos(angle) * speed;
+        b.dy = Math.sin(angle) * speed;
+
+        // Poista cooldown, jotta pallo voi imeytyä uudelleen
+        setTimeout(() => b._bhCooldown = false, 300);
+      }, 120);
+    }
+  }
+
+} else if (blackHole && performance.now() >= blackHole.until) {
+  blackHole = null;
+}
+
+
+  // Slow Ball
+  if(activeBuffs.player.some(bb=>bb.id==="slow" && bb.until>performance.now())){
+    b.dx*=0.92;
+    b.dy*=0.92;
+  }
+  if(activeBuffs.enemy.some(bb=>bb.id==="slow" && bb.until>performance.now())){
+    b.dx*=0.92;
+    b.dy*=0.92;
+  }
+
+  // Time Warp
+  b.dx*=ballScale;
+  b.dy*=ballScale;
+
+  // Pieni satunnaisvaihtelu
+  b.dx+=(Math.random()-.5)*.15;
+  b.dy+=(Math.random()-.5)*.15;
+
+  // Liike
+  b.x+=b.dx;
+  b.y+=b.dy;
+
+  // Partikkelit
+  for(let i=0;i<3;i++) part(b.x,b.y,.4);
+
+  // Ylä/ala seinät
+  if(b.y<0||b.y>c.height){
+    b.dy*=-1;
+    snd("hitSound");
+    burst(b.x,b.y,40,1.2);
+    hitShake(8+Math.abs(b.dy));
+  }
+
+  // Pelaajan törmäys
+  if(!player.ghost && col(player,b)){
+    const h=(b.y-(player.y+player.h/2))/(player.h/2);
+    const spin=(player.y-player.lastY)*0.35;
+    b.dx=Math.abs(b.dx);
+    b.dy+=h*3+spin;
+    b.dy+=(Math.random()-.5)*1.2;
+    snd("hitSound");
+    burst(b.x,b.y,50,1.5);
+    hitShake(10+Math.abs(b.dx));
+  }
+
+  // Vihollisen törmäys
+  if(!enemy.ghost && col(enemy,b)){
+    const h=(b.y-(enemy.y+enemy.h/2))/(enemy.h/2);
+    b.dx=-Math.abs(b.dx);
+    b.dy+=h*2;
+    b.dy+=(Math.random()-.5)*1.0;
+    snd("hitSound");
+    burst(b.x,b.y,50,1.5);
+    hitShake(10+Math.abs(b.dx));
+  }
+
+  // Octo-Paddle (pelaaja)
+  if(activeBuffs.player.some(bb=>bb.id==="octo" && bb.until>performance.now())){
+    const cx=player.x+player.w/2, cy=player.y+player.h/2;
+    const rad=40;
+    for(let i=0;i<8;i++){
+      const ang=i*Math.PI/4;
+      const px=cx+Math.cos(ang)*rad;
+      const py=cy+Math.sin(ang)*rad;
+      const w=8,h=24;
+      if(b.x+b.r>px-w/2 && b.x-b.r<px+w/2 && b.y>py-h/2 && b.y<py+h/2){
+        b.dx=Math.sign(b.x-cx)*Math.abs(b.dx||4);
+        b.dy+=(Math.random()-.5)*4;
+        snd("hitSound");
+        burst(b.x,b.y,30,1.4);
+        break;
+      }
+    }
+  }
+
+  // Nopeuden normalisointi
+  const sp=Math.hypot(b.dx,b.dy),varr=.015;
+  let ns=sp*(1+(Math.random()-.5)*varr);
+  if(ns<3)ns=3;
+  const ang=Math.atan2(b.dy,b.dx);
+  b.dx=Math.cos(ang)*ns;
+  b.dy=Math.sin(ang)*ns;
+
+  const mirrorActive=performance.now()<mirrorUntil;
+
+  // Vasen reuna
+  if(b.x<0){
+    if(mirrorActive){
+      b.x=b.r;
+      b.dx=Math.abs(b.dx);
+      snd("hitSound");
+      burst(b.x,b.y,40,1.4);
+      return;
+    }
+    enemyScore++;
+    snd("gameOverSound");
+    burst(b.x,b.y,80,2.2);
+    hitShake(20);
+    if(b!==ball)remBall(b);else resetBall(ball);
+    if(enemyScore>=SCORE_LIMIT)endGame();
+  }
+
+  // Oikea reuna
+  if(b.x>c.width){
+    if(mirrorActive){
+      b.x=c.width-b.r;
+      b.dx=-Math.abs(b.dx);
+      snd("hitSound");
+      burst(b.x,b.y,40,1.4);
+      return;
+    }
+    enemy.speed=Math.min(enemy.speed+.2,enemy.maxSpeed);
+    playerScore++;
+    snd("gameOverSound");
+    burst(b.x,b.y,80,2.2);
+    hitShake(20);
+    if(b!==ball)remBall(b);else resetBall(ball);
+    if(playerScore>=SCORE_LIMIT)endGame();
+  }
+}
+
+// ===== UPDATE =====
+function update(){
+  if(!running) return;
+
+  const now=performance.now();
+  timeAlive=Math.floor((now-startTime)/1000);
+
+  let playerScale=1, enemyScale=1;
+  ballScale=1;
+
+  // Time Warp
+  if(timeWarp.active){
+    if(now > timeWarp.until){
+      timeWarp.active=false;
+    } else {
+      if(timeWarp.owner==="player"){
+        enemyScale=0.5;
+        ballScale=0.7;
+      } else {
+        playerScale=0.5;
+        ballScale=0.7;
+      }
+    }
+  }
+
+  player.speed = 7 * playerScale + playerSpeedBonus;
+  enemy.speed  = 4 * enemyScale;
+
+  // Powerup spawn
+  if(now-lastPowerSpawn>10000 && !powerUp){
+    spawnPowerUp();
+    lastPowerSpawn=now;
+  }
+
+  // Pelaajan liike
+  player.lastY=player.y;
+  let pSpeed=player.speed;
+
+  if(player.inverted){
+    if(keys["w"] && player.y < c.height-player.h) player.y += pSpeed;
+    if(keys["s"] && player.y > 0) player.y -= pSpeed;
+  } else {
+    if(keys["w"] && player.y > 0) player.y -= pSpeed;
+    if(keys["s"] && player.y < c.height-player.h) player.y += pSpeed;
+  }
+
+  // AI
+  ai();
+
+  // Fysiikka
+  phys(ball);
+  for(const b of [...extraBalls]) phys(b);
+  for(const b of [...enemyExtraBalls]) phys(b,true);
+
+  // Powerup keräys
+  if(powerUp){
+    const d=Math.hypot(ball.x-powerUp.x,ball.y-powerUp.y);
+    if(d < ball.r + powerUp.r){
+      if(ball.dx > 0) applyEnemyPowerUp(powerUp.type);
+      else applyPowerUp(powerUp.type);
+      powerUp=null;
+    }
+  }
+
+  updParts();
+  cleanupBuffs();
+  renderBuffs();
+
+  hudPlayerScore.textContent="Player: "+playerScore;
+  hudEnemyScore.textContent="Enemy: "+enemyScore;
+  hudTime.textContent=timeAlive+" s";
+}
+
+// ===== END GAME =====
+function endGame(){
+  running=false;
+  c.style.display="none";
+  hudBar.style.display="none";
+  menu.style.display="block";
+
+  const bgm=document.getElementById("bgm");
+  bgm.pause(); bgm.currentTime=0;
+
+  if(timeAlive > bestTime){
+    bestTime=timeAlive;
+    localStorage.setItem("bestTime",bestTime);
+  }
+  document.getElementById("best").textContent="Paras aika: "+bestTime+" s";
+}
+
+// ===== VALON TAIPUMINEN (gravitaatiolinssi) =====
+function drawBallWithLensing(b){
+  if (blackHole && performance.now() < blackHole.until) {
+    const dx = b.x - blackHole.x;
+    const dy = b.y - blackHole.y;
+    const dist = Math.hypot(dx, dy);
+
+    if (dist < blackHole.r * 3) {
+      const force = 1 + (blackHole.r * 3 - dist) / (blackHole.r * 3) * 0.6;
+
+      x.save();
+      x.translate(b.x, b.y);
+
+      const ang = Math.atan2(dy, dx);
+      x.rotate(ang);
+
+      x.scale(force, 1 / force);
+
+      x.beginPath();
+      x.arc(0, 0, b.r, 0, Math.PI * 2);
+      x.fill();
+
+      x.restore();
+      return;
+    }
+  }
+
+  // Normaali pallo
+  x.beginPath();
+  x.arc(b.x, b.y, b.r, 0, Math.PI * 2);
+  x.fill();
+}
+
+// ===== DRAW =====
+function draw(){
+  shake();
+  x.clearRect(0,0,c.width,c.height);
+
+  drawParts();
+
+  // Mailat
+  x.fillStyle="#00ffcc";
+  x.shadowColor="#00ffcc";
+  x.shadowBlur=15;
+
+  x.fillRect(player.x,player.y,player.w,player.h);
+  x.fillRect(enemy.x,enemy.y,enemy.w,enemy.h);
+
+  // Octo-Paddle (pelaaja)
+  const hasOctoPlayer=activeBuffs.player.some(b=>b.id==="octo" && b.until>performance.now());
+  const hasOctoEnemy=activeBuffs.enemy.some(b=>b.id==="octo" && b.until>performance.now());
+
+  if(hasOctoPlayer){
+    const cx=player.x+player.w/2, cy=player.y+player.h/2, rad=40;
+    for(let i=0;i<8;i++){
+      const ang=i*Math.PI/4;
+      const px=cx+Math.cos(ang)*rad;
+      const py=cy+Math.sin(ang)*rad;
+      x.fillRect(px-4,py-12,8,24);
+    }
+  }
+
+  if(hasOctoEnemy){
+    const cx=enemy.x+enemy.w/2, cy=enemy.y+enemy.h/2, rad=40;
+    for(let i=0;i<8;i++){
+      const ang=i*Math.PI/4;
+      const px=cx+Math.cos(ang)*rad;
+      const py=cy+Math.sin(ang)*rad;
+      x.fillRect(px-4,py-12,8,24);
+    }
+  }
+
+  // ===== BLACK HOLE VISUAALINEN EFEKTI =====
+  if (blackHole && performance.now() < blackHole.until) {
+    const t = performance.now() * 0.002;
+    const pulse = 0.25 + Math.sin(t * 3) * 0.15;
+
+    x.save();
+    x.translate(blackHole.x, blackHole.y);
+
+    // Pyörivä neon-kehä
+    x.rotate(t);
+    x.lineWidth = 6;
+    x.strokeStyle = "#8844ff";
+    x.shadowColor = "#aa66ff";
+    x.shadowBlur = 35;
+
+    x.beginPath();
+    x.arc(0, 0, blackHole.r + 10, 0, Math.PI * 2);
+    x.stroke();
+
+    // Tumma ydin
+    x.shadowBlur = 0;
+    x.fillStyle = "#110022";
+    x.beginPath();
+    x.arc(0, 0, blackHole.r, 0, Math.PI * 2);
+    x.fill();
+
+    // Pulsoiva glow
+    x.globalAlpha = pulse;
+    x.fillStyle = "#5511ff";
+    x.beginPath();
+    x.arc(0, 0, blackHole.r * 1.3, 0, Math.PI * 2);
+    x.fill();
+
+    x.restore();
+  }
+
+  // ===== PALLON PIIRTO (valon taipumisella) =====
+  drawBallWithLensing(ball);
+  for(const b of extraBalls) drawBallWithLensing(b);
+  for(const b of enemyExtraBalls) drawBallWithLensing(b);
+
+// ===== TIMEWARP VISUAALINEN EFEKTI =====
+if (timeWarp.active && performance.now() < timeWarp.until) {
+    const t = (performance.now() % 2000) / 2000; // 0–1 sykli
+    const pulse = 0.4 + Math.sin(t * Math.PI * 2) * 0.2;
+
+    x.save();
+
+    // Kevyt sininen sumu koko ruudulle
+    x.globalAlpha = 0.25 * pulse;
+    x.fillStyle = "#00ccff";
+    x.fillRect(0, 0, c.width, c.height);
+
+    // Chromatic aberration -efekti
+    const shift = 4 * pulse;
+
+    x.globalAlpha = 0.15;
+    x.drawImage(c, shift, 0);
+    x.drawImage(c, -shift, 0);
+    x.drawImage(c, 0, shift);
+
+    // Blur-simulaatio
+    x.globalAlpha = 0.08;
+    for (let i = 0; i < 5; i++) {
+        x.drawImage(c, (Math.random() - 0.5) * 6, (Math.random() - 0.5) * 6);
+    }
+
+    x.restore();
+}
+
+  // Powerup
+  if(powerUp){
+    const meta=powerupMeta.find(p=>p.id===powerUp.type);
+    let col="#ff00cc";
+    if(meta){
+      col=meta.rarity==="common"?"#3ddc84":
+          meta.rarity==="rare"?"#3b82f6":
+          meta.rarity==="epic"?"#a855f7":"#f59e0b";
+    }
+    x.save();
+    x.fillStyle=col;
+    x.shadowColor=col;
+    x.shadowBlur=35;
+    x.beginPath();
+    x.arc(powerUp.x,powerUp.y,powerUp.r,0,Math.PI*2);
+    x.fill();
+    x.restore();
+  }
+// ===== RAGE MODE (Joke69 Hardcore) =====
+if (difficulty === "joke69") {
+
+    // Pallon nopeus vaikuttaa värin intensiteettiin
+    const speed = Math.hypot(ball.dx, ball.dy);
+    const pulse = 0.5 + Math.sin(performance.now() * 0.01) * 0.5;
+
+    // Neon väri pallon nopeuden mukaan
+const r = Math.min(40, 5 + speed * 0.3);      // lähes ei punaista → ei violettia
+const g = Math.min(220, 120 + speed * 6);     // paljon vihreää → aqua‑sävy
+const b = Math.min(255, 180 + speed * 10);    // vahva sininen → neon‑hohto
+
+
+    const neon = `rgb(${r},${g},${b})`;
+
+    // Taustan neon‑pulssi
+    x.save();
+    x.globalAlpha = 0.15 * pulse;
+    x.fillStyle = neon;
+    x.fillRect(0, 0, c.width, c.height);
+    x.restore();
+
+    // HUD‑tekstien neon‑väri
+    hudNeonColor = neon;
+} else {
+    hudNeonColor = "#00ffcc"; // normaali väri
+}
+
+  // HUD tekstit
+  x.setTransform(1,0,0,1,0,0);
+  x.shadowBlur=0;
+  x.fillStyle = hudNeonColor || "#00ffcc";
+  x.font="16px monospace";
+  x.fillText("Pisteet: "+playerScore+" - "+enemyScore,20,20);
+  x.fillText("Aika: "+timeAlive+" s",20,40);
+}
+
+// ===== LOOP =====
+function loop(){
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+loop();
+
+
+</script>
+
+</body>
+</html>
