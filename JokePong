@@ -13,6 +13,10 @@
 
 <title>JokePong</title>
 <style>
+#game {
+    display: none;
+}
+
 body{
   margin:0;
   background:#000;
@@ -411,11 +415,13 @@ function startGame(){
  bgm.muted = musicMuted; // säilyttää mute-tilan
  bgm.play().catch(()=>{});
 
-  resetBall();
-// LISÄÄ TÄMÄ TÄHÄN
-requestAnimationFrame(loop);
-  
-}
+resetBall();
+
+// Käynnistä loop pienellä viiveellä
+setTimeout(() => {
+    requestAnimationFrame(loop);
+}, 50);
+
 window.startGame=startGame;
 
 function resetBall(b=ball){
@@ -1126,5 +1132,6 @@ function loop(){
 
 </body>
 </html>
+
 
 
