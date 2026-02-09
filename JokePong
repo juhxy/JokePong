@@ -170,6 +170,11 @@ select{
 
 <script>
 
+const c = document.getElementById("game");
+c.width = 720;
+c.height = 420;
+
+
   // Odotetaan käyttäjän ensimmäistä klikkausta ennen pelin käynnistystä
 document.addEventListener("click", startGameOnce, { once: true });
 
@@ -1132,6 +1137,7 @@ function loop(){
 
 </body>
 </html>
+
 
 
 
